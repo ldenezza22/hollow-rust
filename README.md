@@ -48,7 +48,7 @@ Vendor Locations
 
 ## DBMS
 
-I will use MySQL, as it is a free DBMS.
+I will use SQLite, as it is a free DBMS.
 
 ## Programming Language
 
