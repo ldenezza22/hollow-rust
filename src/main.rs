@@ -4,21 +4,30 @@ use std::fs;
 use std::path::Path;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let db_path = "hollow.db";
+    let db_path = "hollow.db"; 
     if Path::new(db_path).exists() {
         fs::remove_file(db_path)?;
         println!("  Removed existing database file at {db_path}.");
     }
 
+    // Open database connection
     let conn = Connection::open(db_path)?;
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
 
+    // Initialize the database
     println!("Step 1: Initialize the database");
     initialize_schema(&conn)?;
     seed_demo_rows(&conn)?;
     println!("  Created schema and seed rows at {db_path}.");
+    print_seeded_tables(&conn)?;
 
-    println!("Step 2: Update the database");
+    // Change charms vendor cost to 230 geo
+    println!("Step 2: Change charms vendor cost to 230 geo");
+    println!("  Before update (charms_vendor where id = 4):");
+    run_select_query(
+        &conn,
+        "SELECT id, vendor_name, cost FROM charms_vendor WHERE id = 4",
+    )?;
     let updated = conn.execute(
         "UPDATE charms_vendor SET cost = ?1 WHERE vendor_name = ?2 AND cost = ?3",
         params![230, "Salubra", 220],
@@ -26,7 +35,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!(
         "  Updated {updated} row(s): Salubra Shaman Stone offer adjusted from 220 to 230 geo (see wiki)."
     );
+    println!("  After update (charms_vendor where id = 4):");
+    run_select_query(
+        &conn,
+        "SELECT id, vendor_name, cost FROM charms_vendor WHERE id = 4",
+    )?;
 
+    // Join read (charms vendor with vendor location)
     println!("Step 3: Join read (charms vendor with vendor location)");
     let join_sql = r#"
         SELECT cv.id,
@@ -40,17 +55,32 @@ fn main() -> Result<(), Box<dyn Error>> {
     "#;
     run_select_query(&conn, join_sql)?;
 
-    println!("Step 4: Delete from the database");
-    let deleted = conn.execute(
-        "DELETE FROM charms_locations WHERE id = ?1",
-        params![8],
+
+    // Delete from the database
+    println!("Step 4: Delete all charms sold by Leg Eater");
+    println!("  Before delete (charms_vendor where vendor_name = 'Leg Eater'):");
+    run_select_query(
+        &conn,
+        "SELECT id, vendor_name, cost FROM charms_vendor WHERE vendor_name = 'Leg Eater' ORDER BY id",
     )?;
-    println!("  Deleted {deleted} row(s) from charms_locations (id 8: Gathering Swarm row).");
+    let deleted = conn.execute(
+        "DELETE FROM charms_vendor WHERE vendor_name = ?1",
+        params!["Leg Eater"],
+    )?;
+    println!("  Deleted {deleted} row(s) from charms_vendor for Leg Eater.");
+    println!("  After delete (charms_vendor where vendor_name = 'Leg Eater'):");
+    run_select_query(
+        &conn,
+        "SELECT id, vendor_name, cost FROM charms_vendor WHERE vendor_name = 'Leg Eater' ORDER BY id",
+    )?;
 
     Ok(())
 }
 
+// This is the scema of the database from README.md
 fn initialize_schema(conn: &Connection) -> rusqlite::Result<()> {
+
+    // Create all tables with CREATE TABLE IF NOT EXISTS
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS charms_locations (
@@ -97,12 +127,11 @@ fn initialize_schema(conn: &Connection) -> rusqlite::Result<()> {
 
 /// Seed data transcribed from the Hollow Knight Wiki (Fandom):
 /// - Charm vendors & prices: https://hollowknight.fandom.com/wiki/Salubra
-/// - Charm notch sources: https://hollowknight.fandom.com/wiki/Charms (Notches table)
+/// - Charm sources: https://hollowknight.fandom.com/wiki/Category:Charms (List of Charms)
 /// - Mask shard acquisition: https://hollowknight.fandom.com/wiki/Mask_Shard
 /// - Leg Eater fragile charm prices: https://hollowknight.fandom.com/wiki/Leg_Eater
-///   (Fragile Heart / Fragile Greed / Fragile Strength shop entries)
 fn seed_demo_rows(conn: &Connection) -> rusqlite::Result<()> {
-    // --- vendor_locations (wiki shop NPC → area) ---
+    // Seed vendor_locations (wiki shop NPC → area)
     for (vendor, area) in [
         ("Salubra", "Forgotten Crossroads"),
         ("Sly", "Dirtmouth"),
@@ -117,7 +146,7 @@ fn seed_demo_rows(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
 
-    // --- charms_vendor: Salubra shop table (wiki Salubra page) ---
+    // charms_vendor: Salubra shop table (wiki Salubra page)
     for (id, cost) in [
         (1, 250),  // Lifeblood Heart
         (2, 300),  // Longnail
@@ -135,7 +164,8 @@ fn seed_demo_rows(conn: &Connection) -> rusqlite::Result<()> {
             params![id, "Salubra", cost],
         )?;
     }
-    // Leg Eater (wiki Leg Eater: Fragile Heart / Greed / Strength geo costs)
+
+    // Insert all Leg Eater charms
     for (id, cost) in [(11, 350), (12, 250), (13, 600)] {
         conn.execute(
             "INSERT INTO charms_vendor (id, vendor_name, cost) VALUES (?1, ?2, ?3)",
@@ -143,20 +173,25 @@ fn seed_demo_rows(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
 
-    // --- charms_locations / requirements: Charm Notch pickups (wiki Charms page, Notches) ---
+    // charms_locations / requirements: List of Charms entries
+    // Source: https://hollowknight.fandom.com/wiki/Category:Charms (List of Charms)
     let charm_locs = [
-        (1, "Fog Canyon (hidden area north-east of Cornifer)"),
-        (2, "Fungal Wastes"),
-        (3, "Colosseum of Fools"),
-        (4, "Dirtmouth (inside the Grimm Troupe tent)"),
-        (5, "Greenpath (near Moss Knight, east of Stone Sanctuary)"),
-        (6, "Ancestral Mound (Howling Wraiths)"),
-        (7, "Crystal Peak"),
-        (
-            8,
-            "Forgotten Crossroads (south-east, near King's Pass entrance — Gathering Swarm)",
-        ),
+        (1, "Wayward Compass — Sold by Iselda for 220."),
+        (2, "Gathering Swarm — Sold by Sly for 300."),
+        (3, "Stalwart Shell — Sold by Sly for 200."),
+        (4, "Soul Catcher — Ancestral Mound, west of Elder Baldur."),
+        (5, "Shaman Stone — Sold by Salubra for 220."),
+        (6, "Soul Eater — Resting Grounds."),
+        (7, "Dashmaster — Fungal Wastes, south of Mantis Village."),
+        (8, "Sprintmaster — Sold by Sly for 400."),
+        (9, "Grubsong — Reward from Grubfather for freeing 10 Grubs."),
+        (10, "Grubberfly's Elegy — Reward from Grubfather for freeing all Grubs."),
+        (11, "Fragile Heart — Sold by Leg Eater for 350/280."),
+        (12, "Unbreakable Heart — Received from Divine for 12000."),
+        (13, "Fragile Greed — Sold by Leg Eater for 250/200."),
     ];
+
+    // Insert all charm locations with INSERT INTO
     for (id, loc) in charm_locs {
         conn.execute(
             "INSERT INTO charms_locations (id, location_name) VALUES (?1, ?2)",
@@ -164,15 +199,22 @@ fn seed_demo_rows(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
     let charm_req = [
-        (1, "Unlock Isma's Tear or Monarch Wings"),
-        (2, "Defeat 2 Shrumal Ogres"),
-        (3, "Complete the Trial of the Warrior"),
-        (4, "Defeat Grimm"),
-        (5, "None (ground pickup)"),
-        (6, "None (after defeating Gruz Mother)"),
-        (7, "Crystal Heart or similar traversal"),
-        (8, "None (early-game ground pickup)"),
+        (1, "Encounter Cornifer first."),
+        (2, "None."),
+        (3, "None."),
+        (4, "None."),
+        (5, "None."),
+        (6, "Requires Desolate Dive."),
+        (7, "None."),
+        (8, "Requires Shopkeeper's Key."),
+        (9, "Free 10 Grubs."),
+        (10, "Free all Grubs."),
+        (11, "None."),
+        (12, "Requires Fragile Heart."),
+        (13, "None."),
     ];
+
+    // Insert all charm requirements with INSERT INTO
     for (id, req) in charm_req {
         conn.execute(
             "INSERT INTO charms_requirements (id, condition_text) VALUES (?1, ?2)",
@@ -180,7 +222,7 @@ fn seed_demo_rows(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
 
-    // --- mask_shards_vendor: Sly in Dirtmouth (wiki Mask Shard — shards 1–4) ---
+    // Insert all mask shard vendors with INSERT INTO
     for (id, cost) in [(1, 150), (2, 500), (3, 800), (4, 1500)] {
         conn.execute(
             "INSERT INTO mask_shards_vendor (id, vendor_name, cost) VALUES (?1, ?2, ?3)",
@@ -188,7 +230,7 @@ fn seed_demo_rows(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
 
-    // --- mask_shards_locations & requirements (wiki Mask Shard, How to Acquire) ---
+    // mask_shards_locations & requirements (wiki Mask Shard, How to Acquire)
     let mask_locs = [
         (1, "Dirtmouth (bought from Sly)"),
         (2, "Dirtmouth (bought from Sly)"),
@@ -207,6 +249,8 @@ fn seed_demo_rows(conn: &Connection) -> rusqlite::Result<()> {
         (15, "Resting Grounds (Seer)"),
         (16, "Resting Grounds (Grey Mourner)"),
     ];
+
+    // Insert all mask shard locations with INSERT INTO
     for (id, loc) in mask_locs {
         conn.execute(
             "INSERT INTO mask_shards_locations (id, location_name) VALUES (?1, ?2)",
@@ -231,6 +275,8 @@ fn seed_demo_rows(conn: &Connection) -> rusqlite::Result<()> {
         (15, "Requires collecting 1500 Essence"),
         (16, "Requires completing the Delicate Flower quest"),
     ];
+
+    // Insert all mask shard requirements with INSERT INTO
     for (id, req) in mask_req {
         conn.execute(
             "INSERT INTO mask_shards_requirements (id, condition_text) VALUES (?1, ?2)",
@@ -275,4 +321,42 @@ fn value_ref_to_string(value: ValueRef<'_>) -> String {
         ValueRef::Text(v) => String::from_utf8_lossy(v).to_string(),
         ValueRef::Blob(v) => format!("<{} bytes>", v.len()),
     }
+}
+
+fn print_seeded_tables(conn: &Connection) -> Result<(), Box<dyn Error>> {
+    println!("  Seeded table snapshots:");
+    for (name, query) in [
+        (
+            "charms_locations",
+            "SELECT id, location_name FROM charms_locations ORDER BY id",
+        ),
+        (
+            "charms_requirements",
+            "SELECT id, condition_text FROM charms_requirements ORDER BY id",
+        ),
+        (
+            "charms_vendor",
+            "SELECT id, vendor_name, cost FROM charms_vendor ORDER BY id",
+        ),
+        (
+            "mask_shards_locations",
+            "SELECT id, location_name FROM mask_shards_locations ORDER BY id",
+        ),
+        (
+            "mask_shards_requirements",
+            "SELECT id, condition_text FROM mask_shards_requirements ORDER BY id",
+        ),
+        (
+            "mask_shards_vendor",
+            "SELECT id, vendor_name, cost FROM mask_shards_vendor ORDER BY id",
+        ),
+        (
+            "vendor_locations",
+            "SELECT vendor_name, location_name FROM vendor_locations ORDER BY vendor_name",
+        ),
+    ] {
+        println!("  - {name}");
+        run_select_query(conn, query)?;
+    }
+    Ok(())
 }
