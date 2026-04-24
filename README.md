@@ -15,6 +15,47 @@ sublocations, shops, vendors, side-quests and more.
 
 ## ER Schema
 
+There is no `ER-model.png` checked into this repository; the diagram below is the
+reference layout for the tables in **DB Schema** (charms and mask shards each
+have parallel location, requirement, and vendor rows; vendors also have a row
+in **Vendor Locations**).
+
+```mermaid
+erDiagram
+    CHARMS_LOCATIONS {
+        int id PK
+        string location_name
+    }
+    CHARMS_REQUIREMENTS {
+        int id PK
+        string condition_text
+    }
+    CHARMS_VENDOR {
+        int id PK
+        string vendor_name
+        int cost
+    }
+    MASK_SHARDS_LOCATIONS {
+        int id PK
+        string location_name
+    }
+    MASK_SHARDS_REQUIREMENTS {
+        int id PK
+        string condition_text
+    }
+    MASK_SHARDS_VENDOR {
+        int id PK
+        string vendor_name
+        int cost
+    }
+    VENDOR_LOCATIONS {
+        string vendor_name PK
+        string location_name
+    }
+    CHARMS_VENDOR }o--|| VENDOR_LOCATIONS : "vendor_name"
+    MASK_SHARDS_VENDOR }o--|| VENDOR_LOCATIONS : "vendor_name"
+```
+
 ## DB Schema
 an asterisk indicates primary key
 

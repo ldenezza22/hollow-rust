@@ -1,49 +1,51 @@
-use rusqlite::{Connection, types::ValueRef};
+use rusqlite::{params, Connection, types::ValueRef};
 use std::error::Error;
-use std::io::{self, Write};
+use std::fs;
 use std::path::Path;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let db_path = "hollow.db";
-    let db_already_exists = Path::new(db_path).exists();
+    if Path::new(db_path).exists() {
+        fs::remove_file(db_path)?;
+        println!("  Removed existing database file at {db_path}.");
+    }
+
     let conn = Connection::open(db_path)?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
 
-    if !db_already_exists {
-        initialize_schema(&conn)?;
-        println!("Initialized new database at {db_path}.");
-    } else {
-        println!("Using existing database at {db_path}.");
-    }
+    println!("Step 1: Initialize the database");
+    initialize_schema(&conn)?;
+    seed_demo_rows(&conn)?;
+    println!("  Created schema and seed rows at {db_path}.");
 
-    print_help();
+    println!("Step 2: Update the database");
+    let updated = conn.execute(
+        "UPDATE charms_vendor SET cost = ?1 WHERE vendor_name = ?2 AND cost = ?3",
+        params![230, "Salubra", 220],
+    )?;
+    println!(
+        "  Updated {updated} row(s): Salubra Shaman Stone offer adjusted from 220 to 230 geo (see wiki)."
+    );
 
-    let stdin = io::stdin();
-    loop {
-        print!("hollow-rust> ");
-        io::stdout().flush()?;
+    println!("Step 3: Join read (charms vendor with vendor location)");
+    let join_sql = r#"
+        SELECT cv.id,
+               cv.vendor_name,
+               cv.cost,
+               vl.location_name AS shop_location
+        FROM charms_vendor AS cv
+        INNER JOIN vendor_locations AS vl
+            ON cv.vendor_name = vl.vendor_name
+        ORDER BY cv.id
+    "#;
+    run_select_query(&conn, join_sql)?;
 
-        let mut line = String::new();
-        stdin.read_line(&mut line)?;
-        let trimmed = line.trim();
-
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        if matches!(trimmed.to_ascii_lowercase().as_str(), "exit" | "quit") {
-            println!("Goodbye.");
-            break;
-        }
-
-        if trimmed.eq_ignore_ascii_case("help") {
-            print_help();
-            continue;
-        }
-
-        if let Err(err) = handle_command(&conn, trimmed) {
-            eprintln!("Error: {err}");
-        }
-    }
+    println!("Step 4: Delete from the database");
+    let deleted = conn.execute(
+        "DELETE FROM charms_locations WHERE id = ?1",
+        params![8],
+    )?;
+    println!("  Deleted {deleted} row(s) from charms_locations (id 8: Gathering Swarm row).");
 
     Ok(())
 }
@@ -93,148 +95,147 @@ fn initialize_schema(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-fn handle_command(conn: &Connection, input: &str) -> Result<(), Box<dyn Error>> {
-    let mut parts = input.splitn(2, char::is_whitespace);
-    let command = parts.next().unwrap_or_default().to_ascii_lowercase();
-    let rest = parts.next().unwrap_or("").trim();
-
-    match command.as_str() {
-        "create" => handle_create(conn, rest)?,
-        "read" => handle_read(conn, rest)?,
-        "update" => handle_update(conn, rest)?,
-        "delete" => handle_delete(conn, rest)?,
-        "sql" => handle_sql(conn, rest)?,
-        _ => {
-            println!("Unknown command. Type 'help' for usage.");
-        }
+/// Seed data transcribed from the Hollow Knight Wiki (Fandom):
+/// - Charm vendors & prices: https://hollowknight.fandom.com/wiki/Salubra
+/// - Charm notch sources: https://hollowknight.fandom.com/wiki/Charms (Notches table)
+/// - Mask shard acquisition: https://hollowknight.fandom.com/wiki/Mask_Shard
+/// - Leg Eater fragile charm prices: https://hollowknight.fandom.com/wiki/Leg_Eater
+///   (Fragile Heart / Fragile Greed / Fragile Strength shop entries)
+fn seed_demo_rows(conn: &Connection) -> rusqlite::Result<()> {
+    // --- vendor_locations (wiki shop NPC → area) ---
+    for (vendor, area) in [
+        ("Salubra", "Forgotten Crossroads"),
+        ("Sly", "Dirtmouth"),
+        ("Leg Eater", "Fungal Wastes"),
+        ("Grubfather", "Forgotten Crossroads"),
+        ("Seer", "Resting Grounds"),
+        ("Grey Mourner", "Resting Grounds"),
+    ] {
+        conn.execute(
+            "INSERT INTO vendor_locations (vendor_name, location_name) VALUES (?1, ?2)",
+            params![vendor, area],
+        )?;
     }
 
-    Ok(())
-}
-
-fn handle_create(conn: &Connection, args: &str) -> Result<(), Box<dyn Error>> {
-    let mut tokens = args.split_whitespace();
-    let table = tokens.next().ok_or("Usage: create <table> <column=value> ...")?;
-    validate_identifier(table)?;
-
-    let assignments: Vec<&str> = tokens.collect();
-    if assignments.is_empty() {
-        return Err("Usage: create <table> <column=value> ...".into());
+    // --- charms_vendor: Salubra shop table (wiki Salubra page) ---
+    for (id, cost) in [
+        (1, 250),  // Lifeblood Heart
+        (2, 300),  // Longnail
+        (3, 120),  // Steady Body
+        (4, 220),  // Shaman Stone
+        (5, 800),  // Quick Focus
+        (6, 120),  // Charm Notch (own 5 Charms)
+        (7, 500),  // Charm Notch (own 10 Charms)
+        (8, 900),  // Charm Notch (own 18 Charms)
+        (9, 1400), // Charm Notch (own 25 Charms)
+        (10, 800), // Salubra's Blessing (own 40 Charms)
+    ] {
+        conn.execute(
+            "INSERT INTO charms_vendor (id, vendor_name, cost) VALUES (?1, ?2, ?3)",
+            params![id, "Salubra", cost],
+        )?;
+    }
+    // Leg Eater (wiki Leg Eater: Fragile Heart / Greed / Strength geo costs)
+    for (id, cost) in [(11, 350), (12, 250), (13, 600)] {
+        conn.execute(
+            "INSERT INTO charms_vendor (id, vendor_name, cost) VALUES (?1, ?2, ?3)",
+            params![id, "Leg Eater", cost],
+        )?;
     }
 
-    let (columns, values) = parse_assignments(&assignments)?;
-    let sql = format!(
-        "INSERT INTO {table} ({}) VALUES ({})",
-        columns.join(", "),
-        values.join(", ")
-    );
-
-    let changed = conn.execute(&sql, [])?;
-    println!("Inserted {changed} row(s).");
-    Ok(())
-}
-
-fn handle_read(conn: &Connection, args: &str) -> Result<(), Box<dyn Error>> {
-    let mut parts = args.splitn(2, char::is_whitespace);
-    let table = parts.next().ok_or("Usage: read <table> [where <condition>]")?;
-    validate_identifier(table)?;
-
-    let remainder = parts.next().unwrap_or("").trim();
-    let condition = strip_prefix_case_insensitive(remainder, "where ").unwrap_or("");
-    let sql = if condition.is_empty() {
-        format!("SELECT * FROM {table}")
-    } else {
-        format!("SELECT * FROM {table} WHERE {condition}")
-    };
-
-    run_select_query(conn, &sql)?;
-    Ok(())
-}
-
-fn handle_update(conn: &Connection, args: &str) -> Result<(), Box<dyn Error>> {
-    let mut parts = args.splitn(2, char::is_whitespace);
-    let table = parts
-        .next()
-        .ok_or("Usage: update <table> set <column=value> [column=value ...] [where <condition>]")?;
-    validate_identifier(table)?;
-
-    let remainder = parts.next().unwrap_or("").trim();
-    let set_block = strip_prefix_case_insensitive(remainder, "set ").ok_or(
-        "Usage: update <table> set <column=value> [column=value ...] [where <condition>]",
-    )?;
-
-    let lower_set = set_block.to_ascii_lowercase();
-    let (assignment_text, where_condition) = if let Some(idx) = lower_set.find(" where ") {
-        (&set_block[..idx], Some(set_block[idx + 7..].trim()))
-    } else {
-        (set_block, None)
-    };
-
-    let assignment_tokens: Vec<&str> = if assignment_text.contains(',') {
-        assignment_text
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .collect()
-    } else {
-        assignment_text.split_whitespace().collect()
-    };
-
-    if assignment_tokens.is_empty() {
-        return Err("No assignments provided for update.".into());
+    // --- charms_locations / requirements: Charm Notch pickups (wiki Charms page, Notches) ---
+    let charm_locs = [
+        (1, "Fog Canyon (hidden area north-east of Cornifer)"),
+        (2, "Fungal Wastes"),
+        (3, "Colosseum of Fools"),
+        (4, "Dirtmouth (inside the Grimm Troupe tent)"),
+        (5, "Greenpath (near Moss Knight, east of Stone Sanctuary)"),
+        (6, "Ancestral Mound (Howling Wraiths)"),
+        (7, "Crystal Peak"),
+        (
+            8,
+            "Forgotten Crossroads (south-east, near King's Pass entrance — Gathering Swarm)",
+        ),
+    ];
+    for (id, loc) in charm_locs {
+        conn.execute(
+            "INSERT INTO charms_locations (id, location_name) VALUES (?1, ?2)",
+            params![id, loc],
+        )?;
+    }
+    let charm_req = [
+        (1, "Unlock Isma's Tear or Monarch Wings"),
+        (2, "Defeat 2 Shrumal Ogres"),
+        (3, "Complete the Trial of the Warrior"),
+        (4, "Defeat Grimm"),
+        (5, "None (ground pickup)"),
+        (6, "None (after defeating Gruz Mother)"),
+        (7, "Crystal Heart or similar traversal"),
+        (8, "None (early-game ground pickup)"),
+    ];
+    for (id, req) in charm_req {
+        conn.execute(
+            "INSERT INTO charms_requirements (id, condition_text) VALUES (?1, ?2)",
+            params![id, req],
+        )?;
     }
 
-    let mut set_parts = Vec::new();
-    for token in assignment_tokens {
-        let (column, value) = token
-            .split_once('=')
-            .ok_or("Assignments must use column=value format.")?;
-        validate_identifier(column)?;
-        set_parts.push(format!("{column}={}", to_sql_literal(value)));
+    // --- mask_shards_vendor: Sly in Dirtmouth (wiki Mask Shard — shards 1–4) ---
+    for (id, cost) in [(1, 150), (2, 500), (3, 800), (4, 1500)] {
+        conn.execute(
+            "INSERT INTO mask_shards_vendor (id, vendor_name, cost) VALUES (?1, ?2, ?3)",
+            params![id, "Sly", cost],
+        )?;
     }
 
-    let sql = if let Some(condition) = where_condition {
-        format!("UPDATE {table} SET {} WHERE {condition}", set_parts.join(", "))
-    } else {
-        format!("UPDATE {table} SET {}", set_parts.join(", "))
-    };
-
-    let changed = conn.execute(&sql, [])?;
-    println!("Updated {changed} row(s).");
-    Ok(())
-}
-
-fn handle_delete(conn: &Connection, args: &str) -> Result<(), Box<dyn Error>> {
-    let mut parts = args.splitn(2, char::is_whitespace);
-    let table = parts.next().ok_or("Usage: delete <table> [where <condition>]")?;
-    validate_identifier(table)?;
-
-    let remainder = parts.next().unwrap_or("").trim();
-    let condition = strip_prefix_case_insensitive(remainder, "where ");
-    let sql = if let Some(where_clause) = condition {
-        if where_clause.is_empty() {
-            return Err("WHERE condition cannot be empty.".into());
-        }
-        format!("DELETE FROM {table} WHERE {where_clause}")
-    } else {
-        format!("DELETE FROM {table}")
-    };
-
-    let changed = conn.execute(&sql, [])?;
-    println!("Deleted {changed} row(s).");
-    Ok(())
-}
-
-fn handle_sql(conn: &Connection, query: &str) -> Result<(), Box<dyn Error>> {
-    if query.is_empty() {
-        return Err("Usage: sql <query>".into());
+    // --- mask_shards_locations & requirements (wiki Mask Shard, How to Acquire) ---
+    let mask_locs = [
+        (1, "Dirtmouth (bought from Sly)"),
+        (2, "Dirtmouth (bought from Sly)"),
+        (3, "Dirtmouth (bought from Sly)"),
+        (4, "Dirtmouth (bought from Sly)"),
+        (5, "Forgotten Crossroads (far west end)"),
+        (6, "Forgotten Crossroads (Grubfather)"),
+        (7, "Forgotten Crossroads (south of False Knight, Goam pit)"),
+        (8, "Queen's Station (east side, Fungal Wastes)"),
+        (9, "Dirtmouth (Bretta's house)"),
+        (10, "Greenpath (Stone Sanctuary, north-east of No Eyes)"),
+        (11, "Royal Waterways (north-west section, swim under main path)"),
+        (12, "Deepnest (via Fungal Core, near Mantis Lords)"),
+        (13, "Crystal Peak (Enraged Guardian reward)"),
+        (14, "The Hive (wall broken by Hive Guardian)"),
+        (15, "Resting Grounds (Seer)"),
+        (16, "Resting Grounds (Grey Mourner)"),
+    ];
+    for (id, loc) in mask_locs {
+        conn.execute(
+            "INSERT INTO mask_shards_locations (id, location_name) VALUES (?1, ?2)",
+            params![id, loc],
+        )?;
     }
-
-    if is_select_query(query) {
-        run_select_query(conn, query)?;
-    } else {
-        conn.execute_batch(query)?;
-        println!("SQL executed successfully.");
+    let mask_req = [
+        (1, "Requires finding Sly in Forgotten Crossroads"),
+        (2, "Requires finding Sly in Forgotten Crossroads"),
+        (3, "Requires finding Sly and the Shopkeeper's Key"),
+        (4, "Requires finding Sly and the Shopkeeper's Key"),
+        (5, "Reward for defeating Brooding Mawlek"),
+        (6, "Requires rescuing 5 Grubs"),
+        (7, "Requires Mantis Claw"),
+        (8, "Requires Mantis Claw"),
+        (9, "Requires rescuing Bretta from Fungal Wastes"),
+        (10, "Lumafly Lantern recommended"),
+        (11, "n/a"),
+        (12, "Requires Monarch Wings"),
+        (13, "Requires Monarch Wings"),
+        (14, "Requires baiting a Hive Guardian into breaking a wall"),
+        (15, "Requires collecting 1500 Essence"),
+        (16, "Requires completing the Delicate Flower quest"),
+    ];
+    for (id, req) in mask_req {
+        conn.execute(
+            "INSERT INTO mask_shards_requirements (id, condition_text) VALUES (?1, ?2)",
+            params![id, req],
+        )?;
     }
 
     Ok(())
@@ -248,7 +249,7 @@ fn run_select_query(conn: &Connection, query: &str) -> Result<(), Box<dyn Error>
         .map(ToString::to_string)
         .collect();
 
-    println!("{}", column_names.join(" | "));
+    println!("  {}", column_names.join(" | "));
 
     let mut rows = stmt.query([])?;
     let mut count = 0usize;
@@ -258,62 +259,12 @@ fn run_select_query(conn: &Connection, query: &str) -> Result<(), Box<dyn Error>
             let value = row.get_ref(index)?;
             rendered.push(value_ref_to_string(value));
         }
-        println!("{}", rendered.join(" | "));
+        println!("  {}", rendered.join(" | "));
         count += 1;
     }
 
-    println!("{count} row(s).");
+    println!("  ({count} row(s))");
     Ok(())
-}
-
-fn parse_assignments(tokens: &[&str]) -> Result<(Vec<String>, Vec<String>), Box<dyn Error>> {
-    let mut columns = Vec::new();
-    let mut values = Vec::new();
-
-    for token in tokens {
-        let (column, value) = token
-            .split_once('=')
-            .ok_or("Assignments must use column=value format.")?;
-        validate_identifier(column)?;
-        columns.push(column.to_string());
-        values.push(to_sql_literal(value));
-    }
-
-    Ok((columns, values))
-}
-
-fn validate_identifier(identifier: &str) -> Result<(), Box<dyn Error>> {
-    if identifier.is_empty()
-        || !identifier
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_')
-    {
-        return Err(format!("Invalid identifier: {identifier}").into());
-    }
-    Ok(())
-}
-
-fn strip_prefix_case_insensitive<'a>(input: &'a str, prefix: &str) -> Option<&'a str> {
-    if input.len() < prefix.len() {
-        return None;
-    }
-
-    let (head, tail) = input.split_at(prefix.len());
-    if head.eq_ignore_ascii_case(prefix) {
-        Some(tail.trim())
-    } else {
-        None
-    }
-}
-
-fn to_sql_literal(value: &str) -> String {
-    if value.eq_ignore_ascii_case("null") {
-        "NULL".to_string()
-    } else if value.parse::<f64>().is_ok() {
-        value.to_string()
-    } else {
-        format!("'{}'", value.replace('\'', "''"))
-    }
 }
 
 fn value_ref_to_string(value: ValueRef<'_>) -> String {
@@ -324,25 +275,4 @@ fn value_ref_to_string(value: ValueRef<'_>) -> String {
         ValueRef::Text(v) => String::from_utf8_lossy(v).to_string(),
         ValueRef::Blob(v) => format!("<{} bytes>", v.len()),
     }
-}
-
-fn is_select_query(query: &str) -> bool {
-    let trimmed = query.trim_start().to_ascii_lowercase();
-    trimmed.starts_with("select")
-        || trimmed.starts_with("with")
-        || trimmed.starts_with("pragma")
-        || trimmed.starts_with("explain")
-}
-
-fn print_help() {
-    println!(
-        r#"Commands:
-  create <table> <column=value> ...                     Insert a row
-  read <table> [where <condition>]                      Query rows
-  update <table> set <column=value> ... [where <cond>]  Update rows
-  delete <table> [where <condition>]                    Delete rows
-  sql <query>                                            Run raw SQL
-  help                                                   Show commands
-  exit | quit                                            Leave program"#
-    );
 }
