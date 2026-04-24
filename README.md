@@ -15,10 +15,9 @@ sublocations, shops, vendors, side-quests and more.
 
 ## ER Schema
 
-There is no `ER-model.png` checked into this repository; the diagram below is the
-reference layout for the tables in **DB Schema** (charms and mask shards each
-have parallel location, requirement, and vendor rows; vendors also have a row
-in **Vendor Locations**).
+See models/ER-model.png.
+
+## DB Schema
 
 ```mermaid
 erDiagram
@@ -56,36 +55,7 @@ erDiagram
     MASK_SHARDS_VENDOR }o--|| VENDOR_LOCATIONS : "vendor_name"
 ```
 
-## DB Schema
-an asterisk indicates primary key
 
-Charms Locations
-|id\*|location name|
---------------------
-
-Charms Requirements
-|id\*|condition text|
----------------------
-
-Charms Vendor
-|id\*|vendor name|cost|
------------------------
-
-Mask Shards Locations
-|id\*|location name|
---------------------
-
-Mask Shards Requirements
-|id\*|condition text|
----------------------
-
-Mask Shards Vendor
-|id\*|vendor name|cost|
------------------------
-
-Vendor Locations
-|vendor name\*|location name|
------------------------------
 
 ## DBMS
 
@@ -94,4 +64,3 @@ I will use SQLite, as it is a free DBMS.
 ## Programming Language
 
 I will be using Rust as my programming language of choice.
-

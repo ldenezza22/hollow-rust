@@ -23,10 +23,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Change charms vendor cost to 230 geo
     println!("Step 2: Change charms vendor cost to 230 geo");
-    println!("  Before update (charms_vendor where id = 4):");
+    println!("  Before update (charms_vendor where id = 5):");
     run_select_query(
         &conn,
-        "SELECT id, vendor_name, cost FROM charms_vendor WHERE id = 4",
+        "SELECT id, vendor_name, cost FROM charms_vendor WHERE id = 5",
     )?;
     let updated = conn.execute(
         "UPDATE charms_vendor SET cost = ?1 WHERE vendor_name = ?2 AND cost = ?3",
@@ -35,10 +35,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!(
         "  Updated {updated} row(s): Salubra Shaman Stone offer adjusted from 220 to 230 geo (see wiki)."
     );
-    println!("  After update (charms_vendor where id = 4):");
+    println!("  After update (charms_vendor where id = 5):");
     run_select_query(
         &conn,
-        "SELECT id, vendor_name, cost FROM charms_vendor WHERE id = 4",
+        "SELECT id, vendor_name, cost FROM charms_vendor WHERE id = 5",
     )?;
 
     // Join read (charms vendor with vendor location)
@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("  Before delete (charms_vendor where vendor_name = 'Leg Eater'):");
     run_select_query(
         &conn,
-        "SELECT id, vendor_name, cost FROM charms_vendor WHERE vendor_name = 'Leg Eater' ORDER BY id",
+        "SELECT id, vendor_name, cost FROM charms_vendor ORDER BY id",
     )?;
     let deleted = conn.execute(
         "DELETE FROM charms_vendor WHERE vendor_name = ?1",
@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("  After delete (charms_vendor where vendor_name = 'Leg Eater'):");
     run_select_query(
         &conn,
-        "SELECT id, vendor_name, cost FROM charms_vendor WHERE vendor_name = 'Leg Eater' ORDER BY id",
+        "SELECT id, vendor_name, cost FROM charms_vendor ORDER BY id",
     )?;
 
     Ok(())
@@ -135,6 +135,8 @@ fn seed_demo_rows(conn: &Connection) -> rusqlite::Result<()> {
     for (vendor, area) in [
         ("Salubra", "Forgotten Crossroads"),
         ("Sly", "Dirtmouth"),
+        ("Iselda", "Dirtmouth"),
+        ("Divine", "Dirtmouth"),
         ("Leg Eater", "Fungal Wastes"),
         ("Grubfather", "Forgotten Crossroads"),
         ("Seer", "Resting Grounds"),
@@ -146,49 +148,79 @@ fn seed_demo_rows(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
 
-    // charms_vendor: Salubra shop table (wiki Salubra page)
-    for (id, cost) in [
-        (1, 250),  // Lifeblood Heart
-        (2, 300),  // Longnail
-        (3, 120),  // Steady Body
-        (4, 220),  // Shaman Stone
-        (5, 800),  // Quick Focus
-        (6, 120),  // Charm Notch (own 5 Charms)
-        (7, 500),  // Charm Notch (own 10 Charms)
-        (8, 900),  // Charm Notch (own 18 Charms)
-        (9, 1400), // Charm Notch (own 25 Charms)
-        (10, 800), // Salubra's Blessing (own 40 Charms)
+    // charms_vendor: vendor-obtained charms keyed to List of Charms ids (1..45)
+    for (id, vendor, cost) in [
+        (1, "Iselda", 220),    // Wayward Compass
+        (2, "Sly", 300),       // Gathering Swarm
+        (3, "Sly", 200),       // Stalwart Shell
+        (5, "Salubra", 220),   // Shaman Stone
+        (8, "Sly", 400),       // Sprintmaster
+        (11, "Leg Eater", 350), // Fragile Heart
+        (12, "Divine", 12000), // Unbreakable Heart
+        (13, "Leg Eater", 250), // Fragile Greed
+        (14, "Divine", 9000),  // Unbreakable Greed
+        (15, "Leg Eater", 600), // Fragile Strength
+        (16, "Divine", 15000), // Unbreakable Strength
+        (18, "Salubra", 120),  // Steady Body
+        (19, "Sly", 350),      // Heavy Blow
+        (21, "Salubra", 300),  // Longnail
+        (29, "Salubra", 800),  // Quick Focus
+        (31, "Salubra", 250),  // Lifeblood Heart
     ] {
         conn.execute(
             "INSERT INTO charms_vendor (id, vendor_name, cost) VALUES (?1, ?2, ?3)",
-            params![id, "Salubra", cost],
-        )?;
-    }
-
-    // Insert all Leg Eater charms
-    for (id, cost) in [(11, 350), (12, 250), (13, 600)] {
-        conn.execute(
-            "INSERT INTO charms_vendor (id, vendor_name, cost) VALUES (?1, ?2, ?3)",
-            params![id, "Leg Eater", cost],
+            params![id, vendor, cost],
         )?;
     }
 
     // charms_locations / requirements: List of Charms entries
     // Source: https://hollowknight.fandom.com/wiki/Category:Charms (List of Charms)
     let charm_locs = [
-        (1, "Wayward Compass — Sold by Iselda for 220."),
-        (2, "Gathering Swarm — Sold by Sly for 300."),
-        (3, "Stalwart Shell — Sold by Sly for 200."),
-        (4, "Soul Catcher — Ancestral Mound, west of Elder Baldur."),
-        (5, "Shaman Stone — Sold by Salubra for 220."),
-        (6, "Soul Eater — Resting Grounds."),
-        (7, "Dashmaster — Fungal Wastes, south of Mantis Village."),
-        (8, "Sprintmaster — Sold by Sly for 400."),
-        (9, "Grubsong — Reward from Grubfather for freeing 10 Grubs."),
-        (10, "Grubberfly's Elegy — Reward from Grubfather for freeing all Grubs."),
-        (11, "Fragile Heart — Sold by Leg Eater for 350/280."),
-        (12, "Unbreakable Heart — Received from Divine for 12000."),
-        (13, "Fragile Greed — Sold by Leg Eater for 250/200."),
+        (1, "Dirtmouth"),
+        (2, "Dirtmouth"),
+        (3, "Dirtmouth"),
+        (4, "Forgotten Crossroads"),
+        (5, "Forgotten Crossroads"),
+        (6, "Resting Grounds"),
+        (7, "Fungal Wastes"),
+        (8, "Dirtmouth"),
+        (9, "Forgotten Crossroads"),
+        (10, "Forgotten Crossroads"),
+        (11, "Fungal Wastes"),
+        (12, "Dirtmouth"),
+        (13, "Fungal Wastes"),
+        (14, "Dirtmouth"),
+        (15, "Fungal Wastes"),
+        (16, "Dirtmouth"),
+        (17, "City of Tears"),
+        (18, "Forgotten Crossroads"),
+        (19, "Crystal Peak"),
+        (20, "Kingdom's Edge"),
+        (21, "Forgotten Crossroads"),
+        (22, "Fungal Wastes"),
+        (23, "King's Pass"),
+        (24, "Greenpath"),
+        (25, "Howling Cliffs"),
+        (26, "Royal Waterways"),
+        (27, "Royal Waterways"),
+        (28, "Forgotten Crossroads"),
+        (29, "Forgotten Crossroads"),
+        (30, "Crystal Peak"),
+        (31, "Forgotten Crossroads"),
+        (32, "Abyss"),
+        (33, "Howling Cliffs"),
+        (34, "Hive"),
+        (35, "Fungal Wastes"),
+        (36, "Deepnest"),
+        (37, "Greenpath"),
+        (38, "Dirtmouth"),
+        (39, "Deepnest"),
+        (40, "Resting Grounds"),
+        (41, "Resting Grounds"),
+        (42, "Dirtmouth"),
+        (43, "Dirtmouth"),
+        (44, "Queen's Gardens"),
+        (45, "Abyss")
     ];
 
     // Insert all charm locations with INSERT INTO
@@ -198,20 +230,34 @@ fn seed_demo_rows(conn: &Connection) -> rusqlite::Result<()> {
             params![id, loc],
         )?;
     }
-    let charm_req = [
-        (1, "Encounter Cornifer first."),
-        (2, "None."),
-        (3, "None."),
-        (4, "None."),
-        (5, "None."),
-        (6, "Requires Desolate Dive."),
-        (7, "None."),
-        (8, "Requires Shopkeeper's Key."),
-        (9, "Free 10 Grubs."),
-        (10, "Free all Grubs."),
-        (11, "None."),
-        (12, "Requires Fragile Heart."),
-        (13, "None."),
+    let charm_req: [(i32, Option<&str>); 24] = [
+        (1, Some("After encountering Cornifer.")),
+        (6, Some("Requires Desolate Dive.")),
+        (8, Some("Requires Shopkeeper's Key.")),
+        (9, Some("Free 10 Grubs.")),
+        (10, Some("Free all Grubs.")),
+        (12, Some("Requires Fragile Heart.")),
+        (14, Some("Requires Fragile Greed.")),
+        (16, Some("Requires Fragile Strength.")),
+        (19, Some("Requires Shopkeeper's Key.")),
+        (22, Some("Defeat the Mantis Lords.")),
+        (24, Some("Requires Mothwing Cloak.")),
+        (26, Some("Defeat Flukemarm.")),
+        (27, Some("Defeat Dung Defender.")),
+        (28, Some("Requires Crystal Heart.")),
+        (30, Some("Requires Crystal Heart.")),
+        (
+            32,
+            Some("Requires 14 Lifeblood masks (15 if Joni's Blessing is equipped)."),
+        ),
+        (34, Some("Defeat Hive Knight.")),
+        (36, Some("Requires Shade Cloak.")),
+        (37, Some("Requires Isma's Tear.")),
+        (38, Some("Acquire all 3 Nail Arts.")),
+        (40, Some("Gather 500 Essence.")),
+        (43, Some("Banish the Grimm Troupe.")),
+        (44, Some("Collect both Kingsoul halves.")),
+        (45, Some("Requires Kingsoul equipped.")),
     ];
 
     // Insert all charm requirements with INSERT INTO
@@ -232,22 +278,22 @@ fn seed_demo_rows(conn: &Connection) -> rusqlite::Result<()> {
 
     // mask_shards_locations & requirements (wiki Mask Shard, How to Acquire)
     let mask_locs = [
-        (1, "Dirtmouth (bought from Sly)"),
-        (2, "Dirtmouth (bought from Sly)"),
-        (3, "Dirtmouth (bought from Sly)"),
-        (4, "Dirtmouth (bought from Sly)"),
-        (5, "Forgotten Crossroads (far west end)"),
-        (6, "Forgotten Crossroads (Grubfather)"),
-        (7, "Forgotten Crossroads (south of False Knight, Goam pit)"),
-        (8, "Queen's Station (east side, Fungal Wastes)"),
-        (9, "Dirtmouth (Bretta's house)"),
-        (10, "Greenpath (Stone Sanctuary, north-east of No Eyes)"),
-        (11, "Royal Waterways (north-west section, swim under main path)"),
-        (12, "Deepnest (via Fungal Core, near Mantis Lords)"),
-        (13, "Crystal Peak (Enraged Guardian reward)"),
-        (14, "The Hive (wall broken by Hive Guardian)"),
-        (15, "Resting Grounds (Seer)"),
-        (16, "Resting Grounds (Grey Mourner)"),
+        (1, "Dirtmouth"),
+        (2, "Dirtmouth"),
+        (3, "Dirtmouth"),
+        (4, "Dirtmouth"),
+        (5, "Forgotten Crossroads"),
+        (6, "Forgotten Crossroads"),
+        (7, "Forgotten Crossroads"),
+        (8, "Fungal Wastes"),
+        (9, "Dirtmouth"),
+        (10, "Greenpath"),
+        (11, "Royal Waterways"),
+        (12, "Deepnest"),
+        (13, "Crystal Peak"),
+        (14, "Hive"),
+        (15, "Resting Grounds"),
+        (16, "Resting Grounds"),
     ];
 
     // Insert all mask shard locations with INSERT INTO
@@ -257,23 +303,22 @@ fn seed_demo_rows(conn: &Connection) -> rusqlite::Result<()> {
             params![id, loc],
         )?;
     }
-    let mask_req = [
-        (1, "Requires finding Sly in Forgotten Crossroads"),
-        (2, "Requires finding Sly in Forgotten Crossroads"),
-        (3, "Requires finding Sly and the Shopkeeper's Key"),
-        (4, "Requires finding Sly and the Shopkeeper's Key"),
-        (5, "Reward for defeating Brooding Mawlek"),
-        (6, "Requires rescuing 5 Grubs"),
-        (7, "Requires Mantis Claw"),
-        (8, "Requires Mantis Claw"),
-        (9, "Requires rescuing Bretta from Fungal Wastes"),
-        (10, "Lumafly Lantern recommended"),
-        (11, "n/a"),
-        (12, "Requires Monarch Wings"),
-        (13, "Requires Monarch Wings"),
-        (14, "Requires baiting a Hive Guardian into breaking a wall"),
-        (15, "Requires collecting 1500 Essence"),
-        (16, "Requires completing the Delicate Flower quest"),
+    let mask_req: [(i32, Option<&str>); 15] = [
+        (1, Some("Requires finding Sly in Forgotten Crossroads")),
+        (2, Some("Requires finding Sly in Forgotten Crossroads")),
+        (3, Some("Requires finding Sly and the Shopkeeper's Key")),
+        (4, Some("Requires finding Sly and the Shopkeeper's Key")),
+        (5, Some("Reward for defeating Brooding Mawlek")),
+        (6, Some("Requires rescuing 5 Grubs")),
+        (7, Some("Requires Mantis Claw")),
+        (8, Some("Requires Mantis Claw")),
+        (9, Some("Requires rescuing Bretta from Fungal Wastes")),
+        (10, Some("Lumafly Lantern recommended")),
+        (12, Some("Requires Monarch Wings")),
+        (13, Some("Requires Monarch Wings")),
+        (14, Some("Requires baiting a Hive Guardian into breaking a wall")),
+        (15, Some("Requires collecting 1500 Essence")),
+        (16, Some("Requires completing the Delicate Flower quest")),
     ];
 
     // Insert all mask shard requirements with INSERT INTO
