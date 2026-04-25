@@ -1,3 +1,18 @@
+# HOW TO RUN
+
+First, if you don't have rustup installed, use the following in your commandline
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+If you need a windows installer, use https://rustup.rs/
+
+Restarting your terminal shell is likely necessary for PATH to be updated properly.
+Then, run the following in your commandline in the root of this project directory:
+```sh
+cargo run
+```
+
+
 # Project Plan
 
 by Logan DeNezza (denezza.4)
@@ -54,7 +69,6 @@ erDiagram
     CHARMS_VENDOR }o--|| VENDOR_LOCATIONS : "vendor_name"
     MASK_SHARDS_VENDOR }o--|| VENDOR_LOCATIONS : "vendor_name"
 ```
-
 
 
 ## DBMS
